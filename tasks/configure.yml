@@ -1,4 +1,14 @@
 ---
+- name: configure | Set /etc/defaults/telegraf environment variables
+  ansible.builtin.copy:
+    content: |
+      {% for key, value in telegraf_env.items() %}
+      {{ key }}="{{ value }}"
+      {% endfor %}
+    mode: "0600"
+    owner: root
+    dest: /etc/default/telegraf
+
 - name: configure | Set templatized Telegraf configuration
   ansible.builtin.template:
     src: "{{ telegraf_configuration_template }}"

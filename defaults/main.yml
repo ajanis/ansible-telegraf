@@ -58,20 +58,70 @@ telegraf_influxdb2_tls_cert: "{{ ssl_certpath | default('/etc/ssl/certs/my.cert'
 telegraf_influxdb2_tls_key: "{{ ssl_keypath | default('/etc/private/ssl/my.key') }}"
 telegraf_influxdb2_insecure_skip_verify: "true"
 
-### EXAMPLE CONFIGS FORR LOKI / PROMETHEUS OUTPUTS
+## ENVIRONMENT VARIABLES SET IN /etc/default/telegraf USED IN CONFIG FILE
+telegraf_env:
+  INFLUX_HOST: "{{ telegraf_influxdb2_default_url }}"
+  INFLUX_ORG: default
+  INFLUX_TELEGRAF_TOKEN: "{{ vault_influxdb2_telegraf_metrics_token }}"
+  INFLUX_LOGS_TOKEN: "{{ vault_influxdb2_telegraf_logs_token }}"
+  INFLUX_LOKI_HOST: "{{ loki_default_url }}"
 
-# # Telegraf Prometheus / Mimir remote write Output
-# prometheus_server_ip: 0.0.0.0
-# prometheus_default_url: http://{{ prometheus_server_ip }}:9009/api/v1/push
-# prometheus_data_format: prometheusremotewrite
-# prometheus_http_headers:
-#   - header: Content-Type
-#     value: application/x-protobuf
-#   - header: Content-Encoding
-#     value: snappy
-#   - header: X-Prometheus-Remote-Write-Version
-#     value: "0.1.0"
-#
+### EXAMPLE OUTPUT CONFIGS
+
+telegraf_output_plugins:
+  # # Name Pass/Drop Config
+  - name: influxdb_v2
+    options:
+      urls:
+        - "${INFLUX_HOST}"
+      token: "${INFLUX_TELEGRAF_TOKEN}"
+      organization: "${INFLUX_ORG}"
+      exclude_bucket_tag: "false"
+      bucket: telegraf
+      timeout: 30s
+      ping_timeout: 15s
+      read_idle_timeout: 30s
+      user_agent: telegraf
+      content_encoding: gzip
+      influx_uint_support: "false"
+      insecure_skip_verify: "false"
+      namedrop:
+        - syslog
+        - docker_log
+        - tail
+        - nginx_access_log
+  - name: influxdb_v2
+    options:
+      urls:
+        - "${INFLUX_HOST}"
+      token: "${INFLUX_LOGS_TOKEN}"
+      organization: "${INFLUX_ORG}"
+      exclude_bucket_tag: "false"
+      bucket: logs
+      timeout: 30s
+      ping_timeout: 15s
+      read_idle_timeout: 30s
+      user_agent: telegraf
+      content_encoding: gzip
+      influx_uint_support: "false"
+      insecure_skip_verify: "false"
+      namepass:
+        - syslog
+        - tail
+        - nginx_access_log
+
+  # # Loki remote_write output config
+  - name: loki
+    options:
+      domain: "${INFLUX_LOKI_HOST}"
+      endpoint: "{{ loki_endpoint }}"
+      timeout: "{{ loki_timeout }}"
+      metric_name_label: "{{ loki_metric_name_label }}"
+      namepass:
+        - syslog
+        - tail
+        - nginx_access_log
+
 # # Prometheus remote-write output config
 # - name: http
 #   options:
@@ -81,39 +131,6 @@ telegraf_influxdb2_insecure_skip_verify: "true"
 #       Content-Type: application/x-protobuf
 #       Content-Encoding: snappy
 #       X-Prometheus-Remote-Write-Version: "0.1.0"
-#
-# # Telegraf Loki / Mimir remote write Output
-# loki_server_ip: 0.0.0.0
-# loki_default_url: http://{{ loki_server_ip }}:3100
-# loki_endpoint: /loki/api/v1/push
-# loki_timeout: 5s
-# loki_metric_name_label: __name
-
-# # Loki remote_write output config
-# - name: loki
-#   options:
-#     domain: "{{ loki_default_url }}"
-#     endpoint: "{{ loki_endpoint }}"
-#     timeout: "{{ loki_timeout }}"
-
-telegraf_output_plugins:
-  # influxdb v2 output config
-  - name: influxdb_v2
-    options:
-      urls:
-        - "{{ telegraf_influxdb2_default_url }}"
-      token: "{{ vault_influxdb2_telegraf_token }}"
-      organization: "{{ telegraf_influxdb2_organization }}"
-      bucket: "{{ telegraf_influxdb2_bucket }}"
-      exclude_bucket_tag: "{{ telegraf_influxdb2_exclude_bucket_tag }}"
-      timeout: "{{ telegraf_influxdb2_timeout }}"
-      user_agent: "{{ telegraf_influxdb2_user_agent }}"
-      content_encoding: "{{ telegraf_influxdb2_content_encoding }}"
-      influx_uint_support: "{{ telegraf_influxdb2_influx_uint_support }}"
-      # tls_ca: "/etc/telegraf/ca.pem"
-      tls_cert: "{{ ssl_cert_slurp_path }}"
-      tls_key: "{{ ssl_key_slurp_path }}"
-      insecure_skip_verify: "{{ telegraf_influxdb2_insecure_skip_verify }}"
 
 # Base telegraf configuration override
 telegraf_plugins_base:

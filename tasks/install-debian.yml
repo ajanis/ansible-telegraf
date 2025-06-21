@@ -23,7 +23,7 @@
   when:
     - ansible_distribution != 'Ubuntu' or ansible_distribution_release | lower != 'noble'
 
-- name: install-debian | Add InfluxData repository and GPG Key
+- name: install-debian | Add InfluxData repository and GPG Key for 24.04
   ansible.builtin.deb822_repository:
     name: influxdata
     types: deb

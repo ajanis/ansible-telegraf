@@ -10,7 +10,6 @@
   ansible.builtin.file:
     path: /etc/apt/sources.list.d/influxdata.list
     state: absent
-
 - name: install-debian | Add InfluxData repository and GPG Key
   ansible.builtin.deb822_repository:
     name: influxdata
@@ -21,6 +20,21 @@
     suites: "{{ ansible_distribution_release | lower }}"
     components: "{{ telegraf_install_version }}"
     signed_by: "{{ telegraf_influxdata_base_url }}/influxdata-archive_compat.key"
+  when:
+    - ansible_distribution != 'Ubuntu' or ansible_distribution_release | lower != 'noble'
+
+- name: install-debian | Add InfluxData repository and GPG Key
+  ansible.builtin.deb822_repository:
+    name: influxdata
+    types: deb
+    enabled: true
+    state: present
+    uris: "{{ telegraf_influxdata_base_url }}/debian"
+    suites: stable
+    components: main
+    signed_by: "{{ telegraf_influxdata_base_url }}/influxdata-archive_compat.key"
+  when:
+    - ansible_distribution == 'Ubuntu' and ansible_distribution_release | lower == 'noble'
 
 - name: install-debian | Install Telegraf packages [Debian/Ubuntu] # noqa package-latest
   ansible.builtin.apt:

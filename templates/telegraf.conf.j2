@@ -1,30 +1,90 @@
 #jinja2: trim_blocks: True, lstrip_blocks: True
 
+{% macro format_scalar(value) -%}
+{%- if value is sameas true -%}
+true
+{%- elif value is sameas false -%}
+false
+{%- elif value is number -%}
+{{ value }}
+{%- elif value is string and value | lower in ['true', 'false'] -%}
+{{ value | lower }}
+{%- else -%}
+"{{ value | string | replace('\\', '\\\\') | replace('\"', '\\"') }}"
+{%- endif -%}
+{%- endmacro %}
+
+{% macro format_array(seq) -%}
+{%- set items = seq | select('defined') | reject('equalto', none) | list -%}
+{%- if items %}
+[ {%- for item in items -%}{{ format_scalar(item) }}{% if not loop.last %}, {% endif %}{%- endfor -%} ]
+{%- else -%}
+[]
+{%- endif -%}
+{%- endmacro %}
+
+{% macro render_table(context, data, indent='  ') -%}
+{%- if data is mapping %}
+{%- for key, value in data.items() %}
+{%- if value is not none and value is not undefined %}
+{%- if value is mapping %}
+{%- set only_options = (value | length == 1) and ('options' in value) -%}
+{%- if only_options %}
+{%- set inner = value.get('options') %}
+{%- if inner is mapping %}
+{{- '\n' ~ indent }}[{{ context }}.{{ key }}]
+{{ render_table(context ~ '.' ~ key, inner, indent + '  ') }}
+{%- elif inner is sequence and inner is not string %}
+{%- set seq_inner = inner | list -%}
+{%- if seq_inner and (seq_inner[0] is mapping) %}
+{%- for item in seq_inner %}
+{{- '\n' ~ indent }}[[{{ context }}.{{ key }}]]
+{{ render_table(context ~ '.' ~ key, item, indent + '  ') }}
+{%- endfor %}
+{%- else %}
+{{- '\n' ~ indent }}{{ key }} = {{ format_array(seq_inner) }}
+{%- endif %}
+{%- elif inner is not none and inner is not undefined %}
+{{- '\n' ~ indent }}{{ key }} = {{ format_scalar(inner) }}
+{%- endif %}
+{%- else %}
+{{- '\n' ~ indent }}[{{ context }}.{{ key }}]
+{{ render_table(context ~ '.' ~ key, value, indent + '  ') }}
+{%- endif %}
+{%- elif value is sequence and value is not string %}
+{%- set seq = value | list -%}
+{%- if seq and (seq[0] is mapping) %}
+{%- for item in seq %}
+{{- '\n' ~ indent }}[[{{ context }}.{{ key }}]]
+{{ render_table(context ~ '.' ~ key, item, indent + '  ') }}
+{%- endfor %}
+{%- else %}
+{{- '\n' ~ indent }}{{ key }} = {{ format_array(seq) }}
+{%- endif %}
+{%- else %}
+{{- '\n' ~ indent }}{{ key }} = {{ format_scalar(value) }}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endmacro %}
+
 ###############################################################################
 #                              GLOBAL TAGS                                    #
 ###############################################################################
 
 [global_tags]
-
-# Telegraf Tags
-{% if telegraf_tags is defined and telegraf_tags is iterable %}
-{% for key, value in telegraf_tags.items() | default('[]') %}
-{% if value == "true" or value == "false" or value is number %}
-  {{ key }} = {{ value }}
-{% else %}
-  {{ key }} = "{{ value }}"
-{% endif %}
+{% set global_tags = telegraf_tags | default({}, true) %}
+{% for key, value in global_tags.items() if value is not none and value is not undefined %}
+  {{ key }} = {{ format_scalar(value) }}
 {% endfor %}
-{% endif %}
 
 # AWS and EC2 Tags
-{% if ec2_tags is defined and ec2_tags is iterable %}
-{% for key, value in ec2_tags.items() | default() %}
-{% if value == "true" or value == "false" or value is number %}
-  {{ telegraf_aws_tags_prefix|default('') }}{{ key }} = {{ value }}
-{% else %}
-  {{ telegraf_aws_tags_prefix | default('') }}{{ key }} = "{{ value }}"
-{% endif %}
+{% set ec2 = ec2_tags | default({}, true) %}
+{% if ec2 %}
+{% set aws_prefix = telegraf_aws_tags_prefix | default('') %}
+{% for key, value in ec2.items() if value is not none and value is not undefined %}
+  {{ aws_prefix }}{{ key }} = {{ format_scalar(value) }}
 {% endfor %}
 {% endif %}
 
@@ -33,115 +93,34 @@
 ###############################################################################
 
 [agent]
-{% if telegraf_agent_configs is defined and telegraf_agent_configs is iterable %}
-{% for key, value in telegraf_agent_configs.items() | default() %}
-{% if value == "true" or value == "false" or value is number %}
-{{ key }} = {{ value }}
-{% else %}
-{{ key }} = "{{ value }}"
-{% endif %}
+{% for key, value in (telegraf_agent_configs | default({}, true)).items() if value is not none and value is not undefined %}
+  {{ key }} = {{ format_scalar(value) }}
 {% endfor %}
-{% endif %}
 
 ###############################################################################
 #                                  OUTPUTS                                    #
 ###############################################################################
 
-{% for plugin in telegraf_output_plugins | default([]) %}
+{% for plugin in telegraf_output_plugins | default([], true) %}
 [[outputs.{{ plugin.name }}]]
 {% if plugin.options is defined %}
-{% for key, value in plugin.options.items() %}
-{% if value is not mapping %}
-{% if value is sequence and value is not string %}
-{% if value[0] is number %}
-    {{ key }} = [ {{ value|join(', ') }} ]
-{% else %}
-    {{ key }} = [ '{{ value|join("', '") }}' ]
+{{ render_table('outputs.' ~ plugin.name, plugin.options) }}
 {% endif %}
-{% else %}
-{% if value == "true" or value == "false" or value is number %}
-    {{ key }} = {{ value }}
-{% else %}
-    {{ key }} = "{{ value }}"
-{% endif %}
-{% endif %}
-{% endif %}
-{% endfor %}
-{% for key, value in plugin.options.items() %}
-{% if value is mapping %}
-    [outputs.{{ plugin.name }}.{{ key }}]
-{% for lv2_key, lv2_value in value.items() %}
-{% if lv2_value is sequence and lv2_value is not string %}
-{% if lv2_value[0] is number %}
-      {{ lv2_key }} = [ {{ lv2_value|join(', ') }} ]
-{% else %}
-      {{ lv2_key }} = [ '{{ lv2_value|join("', '") }}' ]
-{% endif %}
-{% else %}
-{% if lv2_value == "true" or lv2_value == "false" or lv2_value is number %}
-      {{ lv2_key }} = {{ lv2_value }}
-{% elif 'ALL' in lv2_key %}
-      "{{ lv2_key }}" = "{{ lv2_value }}"
-{% else %}
-      {{ lv2_key }} = "{{ lv2_value }}"
-{% endif %}
-{% endif %}
-{% endfor %}
-{% endif %}
-{% endfor %}
-{% endif %}
-{% endfor %}
 
+{% endfor %}
 
 ###############################################################################
-#                                  PLUGINS                                    #
+#                                  INPUTS                                     #
 ###############################################################################
 
-{% for plugin in telegraf_plugins | default ([]) %}
+{% for plugin in telegraf_plugins | default([], true) %}
 [[inputs.{{ plugin.name }}]]
 {% if plugin.options is defined %}
-{% for key, value in plugin.options.items() %}
-{% if value is not mapping %}
-{% if value is sequence and value is not string %}
-{% if value[0] is number %}
-    {{ key }} = [ {{ value|join(', ') }} ]
-{% else %}
-    {{ key }} = [ '{{ value|join("', '") }}' ]
+{{ render_table('inputs.' ~ plugin.name, plugin.options) }}
 {% endif %}
-{% else %}
-{% if value == "true" or value == "false" or value is number %}
-    {{ key }} = {{ value }}
-{% else %}
-    {{ key }} = "{{ value }}"
-{% endif %}
-{% endif %}
-{% endif %}
-{% endfor %}
-{% for key, value in plugin.options.items() %}
-{% if value is mapping %}
-    [inputs.{{ plugin.name }}.{{ key }}]
-{% for lv2_key, lv2_value in value.items() %}
-{% if lv2_value is sequence and lv2_value is not string %}
-{% if lv2_value[0] is number %}
-      {{ lv2_key }} = [ {{ lv2_value|join(', ') }} ]
-{% else %}
-      {{ lv2_key }} = [ '{{ lv2_value|join("', '") }}' ]
-{% endif %}
-{% else %}
-{% if lv2_value == "true" or lv2_value == "false" or lv2_value is number %}
-      {{ lv2_key }} = {{ lv2_value }}
-{% elif 'ALL' in lv2_key %}
-      "{{ lv2_key }}" = "{{ lv2_value }}"
-{% else %}
-      {{ lv2_key }} = "{{ lv2_value }}"
-{% endif %}
-{% endif %}
-{% endfor %}
-{% endif %}
-{% endfor %}
-{% endif %}
+
 {% endfor %}
 
 ###############################################################################
-#                              service PLUGINS                                #
+#                              SERVICE PLUGINS                                #
 ###############################################################################

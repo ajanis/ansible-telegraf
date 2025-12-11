@@ -69,13 +69,13 @@ telegraf_env:
 ### EXAMPLE OUTPUT CONFIGS
 
 telegraf_output_plugins:
-  # # Name Pass/Drop Config
   - name: influxdb_v2
     options:
+      alias: telegraf
       urls:
-        - "${INFLUX_HOST}"
-      token: "${INFLUX_TELEGRAF_TOKEN}"
-      organization: "${INFLUX_ORG}"
+        - "http://10.0.10.100:8086"
+      token: "{{ vault_influxdb2_telegraf_metrics_token }}"
+      organization: "constructorfleet"
       exclude_bucket_tag: "false"
       bucket: telegraf
       timeout: 30s
@@ -85,52 +85,100 @@ telegraf_output_plugins:
       content_encoding: gzip
       influx_uint_support: "false"
       insecure_skip_verify: "false"
-      namedrop:
-        - syslog
-        - docker_log
-        - tail
-        - nginx_access_log
+
   - name: influxdb_v2
     options:
+      alias: influxdb3-telegraf
       urls:
-        - "${INFLUX_HOST}"
-      token: "${INFLUX_LOGS_TOKEN}"
-      organization: "${INFLUX_ORG}"
-      exclude_bucket_tag: "false"
-      bucket: logs
+        - "http://10.0.10.100:8181"
+      token: "{{ vault_influxdb3_operator_token }}"
+      organization: ""
+      bucket: "telegraf"
       timeout: 30s
       ping_timeout: 15s
       read_idle_timeout: 30s
       user_agent: telegraf
       content_encoding: gzip
-      influx_uint_support: "false"
+      influx_uint_support: "true"
       insecure_skip_verify: "false"
-      namepass:
+
+  - name: http
+    options:
+      url: "http://10.0.10.100:8428/api/v1/write"
+      method: "POST"
+      data_format: "prometheusremotewrite"
+      timeout: "30s"
+      idle_conn_timeout: "90s"
+      namedrop:
+        - "syslog"
+        - "tail"
+        - "nginx_access_log"
+      headers:
+        options:
+          Content-Type: "application/x-protobuf"
+          Content-Encoding: "snappy"
+          X-Prometheus-Remote-Write-Version: "0.1.0"
+
+  - name: influxdb
+    options:
+      alias: VictoriaMetrics
+      urls:
+        - http://10.0.10.100:8428
+      database: telegraf
+      timeout: 10s
+      content_encoding: gzip
+      influx_uint_support: "true"
+      skip_database_creation: "false"
+      exclude_retention_policy_tag: "true"
+      namedrop:
         - syslog
         - tail
+        - nginx_json
         - nginx_access_log
 
-  # # Loki remote_write output config
   - name: loki
     options:
-      domain: "${INFLUX_LOKI_HOST}"
-      endpoint: "{{ loki_endpoint }}"
-      timeout: "{{ loki_timeout }}"
-      metric_name_label: "{{ loki_metric_name_label }}"
+      alias: VictoriaLogs
+      domain: "http://10.0.10.100:9428"
+      endpoint: "/insert/loki/api/v1/push"
+      timeout: "10s"
+      namepass:
+        - syslog
+        - tail
+        - nginx_json
+        - nginx_access_log
+        - netflow
+
+  - name: elasticsearch
+    options:
+      urls:
+        - http://10.0.10.100:9428/insert/elasticsearch
+      timeout: 1m
+      flush_interval: 30s
+      enable_sniffer: "false"
+      health_check_interval: "0s"
+      index_name: "device_log-%Y.%m.%d"
+      manage_template: "false"
+      template_name: telegraf
+      overwrite_template: "false"
       namepass:
         - syslog
         - tail
         - nginx_access_log
+      headers:
+        options:
+          VL-Msg-Field: tail.value
+          VL-Time-Field: "@timestamp"
+          VL-Stream-Fields: "tag.log_source,tag.metric_type"
 
-# # Prometheus remote-write output config
-# - name: http
-#   options:
-#     url: "{{ prometheus_default_url }}"
-#     data_format: "{{ prometheus_data_format }}"
-#     headers:
-#       Content-Type: application/x-protobuf
-#       Content-Encoding: snappy
-#       X-Prometheus-Remote-Write-Version: "0.1.0"
+  - name: http
+    options:
+      url: "{{ prometheus_default_url }}"
+      data_format: "{{ prometheus_data_format }}"
+      headers:
+        Content-Type: application/x-protobuf
+        Content-Encoding: snappy
+        X-Prometheus-Remote-Write-Version: "0.1.0"
 
 # Base telegraf configuration override
 telegraf_plugins_base:
@@ -139,7 +187,7 @@ telegraf_plugins_base:
     options:
       percpu: "true"
       totalcpu: "true"
-      fielddrop:
+      fieldexclude:
         - time_*
   - name: mem
   - name: net
@@ -171,8 +219,16 @@ telegraf_plugins_base:
         - securityfs
         - sysfs
         - tmpfs
+        - devfs
+        - devtmpfs
         - tracefs
         - overlay
+        - overlay2
+        - mdev
+        - squashfs
+        - raid_member
+        - nfs
+        - nfs4
         - iso9660
   - name: diskio
     options:
@@ -187,37 +243,29 @@ telegraf_plugins_base:
   - name: kernel
   - name: kernel_vmstat
   - name: internal
-  - name: sysstat
     options:
-      sadc_interval: 1s
-      interval: 15s
-      sadc_path: /usr/lib/sysstat/sadc
-      activities:
-        - DISK
-        - XDISK
-        - SNMP
-        - INT
-        - POWER
-      group: "true"
-      options:
-        -C: cpu
-        -B: paging
-        -b: io
-        -d: disk
-        -H: hugepages
-        -I ALL: interrupts
-        -n ALL: network
-        -P ALL: per_cpu
-        -q: queue
-        -r ALL: mem_util
-        -S: swap_util
-        -u: cpu_util
-        -v: inode
-        -W: swap
-        -w: task
+      collect_memstats: "true"
   - name: syslog
     options:
-      server: tcp://:6514
+      server: tcp4://:5140
+      syslog_standard: RFC5424
+      framing: octet-counting
+      best_effort: "true"
+      keep_alive_period: 5m
+      read_timeout: 0
+      trailer: LF
+  - name: x509_cert
+    options:
+      sources:
+        - https://nginx.home.prettybaked.com
+        - https://pvedash.home.prettybaked.com
+        - https://ceph.home.prettybaked.com
+        - https://traefik.home.prettybaked.com
+        - https://authentik.prettybaked.com
+        - https://plex.home.prettybaked.com
+        - https://plex.prettybaked.com
+        - https://requests.prettybaked.com
+        - https://tautulli.prettybaked.com
 
 telegraf_plugins: "{{ telegraf_plugins_base + telegraf_plugins_extra | default([]) }}"
 

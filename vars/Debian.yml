@@ -1,7 +1,7 @@
 ---
 telegraf_dep_pkgs:
-  - python3-httplib2
-  - python3-apt
+  - python{{ ansible_facts['python']['version']['major'] }}-httplib2
+  - python{{ ansible_facts['python']['version']['major'] }}-apt
   - curl
   - apt-transport-https
 

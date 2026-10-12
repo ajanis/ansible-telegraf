@@ -8,6 +8,8 @@
     mode: "0600"
     owner: root
     dest: /etc/default/telegraf
+  notify:
+    - Restart Telegraf
 
 - name: configure | Set templatized Telegraf configuration
   ansible.builtin.template:
@@ -18,52 +20,8 @@
     owner: telegraf
     group: telegraf
     mode: "0744"
-  when: telegraf_template_configuration
+  when: telegraf_template_configuration | default(True)
   notify:
     - Restart Telegraf
   tags:
     - telegraf-config
-# - name: configure | Test for sysvinit script
-#   ansible.builtin.stat:
-#     path: /etc/init.d/telegraf
-#   register: telegraf_sysvinit_script
-
-# - name: configure | Modify user Telegraf should run as
-#   ansible.builtin.command: sed -i s/USER=.*/USER={{ telegraf_runas_user }}/ /etc/init.d/telegraf
-#   when: telegraf_runas_user != "telegraf" and telegraf_sysvinit_script.stat.exists
-
-# - name: configure | Modify group Telegraf should run as
-#   ansible.builtin.command: sed -i s/GROUP=.*/GROUP={{ telegraf_runas_group }}/ /etc/init.d/telegraf
-#   when: telegraf_runas_group != "telegraf" and telegraf_sysvinit_script.stat.exists
-
-- name: configure | Set up telegraf service
-  tags:
-    - telegraf-systemd
-  block:
-    - name: configure | Create telegraf service.d directory
-      ansible.builtin.file:
-        path: /etc/systemd/system/telegraf.service.d
-        state: directory
-        mode: "0755"
-      when:
-        - telegraf_runas_user != "telegraf"
-
-    - name: configure | Copy telegraf override configuration
-      ansible.builtin.template:
-        src: systemd/system/telegraf.service.d/override.conf.j2
-        dest: /etc/systemd/system/telegraf.service.d/override.conf
-        mode: "0755"
-      when:
-        - telegraf_runas_user != "telegraf"
-      notify:
-        - Restart Telegraf
-      register: telegraf_unit_file_updated
-
-    - name: configure | Reload systemd configuration
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-      notify:
-        - Restart Telegraf
-      when:
-        - telegraf_unit_file_updated is defined
-        - telegraf_unit_file_updated.changed

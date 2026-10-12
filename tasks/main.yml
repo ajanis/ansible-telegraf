@@ -9,7 +9,7 @@
   tags:
     - always
 
-- name: Import installation tasks
+- name: Run installation tasks
   ansible.builtin.include_tasks:
     file: install.yml
     apply:
@@ -26,23 +26,12 @@
         - telegraf-snmp
   tags:
     - telegraf-snmp
-- name: Import configuration tasks
+
+- name: Run configuration tasks
   ansible.builtin.include_tasks:
     file: configure.yml
     apply:
       tags:
-        - telegraf-config
-        - telegraf-install
+        - telegraf-configure
   tags:
-    - telegraf-config
-    - telegraf-install
-- name: Import service tasks
-  ansible.builtin.include_tasks:
-    file: start.yml
-    apply:
-      tags:
-        - telegraf-install
-        - telegraf-config
-  tags:
-    - telegraf-config
-    - telegraf-install
+    - telegraf-configure

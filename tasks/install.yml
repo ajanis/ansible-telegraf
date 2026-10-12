@@ -3,12 +3,74 @@
   ansible.builtin.include_tasks:
     file: wait_for_locks.yml
 
-- name: install | Include RHEL tasks
-  ansible.builtin.include_tasks:
-    file: install-redhat.yml
-  when: ansible_os_family == "RedHat"
+# - name: install | Include RHEL tasks
+#   ansible.builtin.include_tasks:
+#     file: install-redhat.yml
+#   when: ansible_os_family == "RedHat"
 
-- name: install | Include Debian tasks
-  ansible.builtin.include_tasks:
-    file: install-debian.yml
-  when: ansible_os_family == "Debian"
+# - name: install | Include Debian tasks
+#   ansible.builtin.include_tasks:
+#     file: install-debian.yml
+#   when: ansible_os_family == "Debian"
+
+- name: install | Install dependencies
+  ansible.builtin.package:
+    name: "{{ telegraf_dep_pkgs }}"
+    state: present
+
+- name: install | Configure InfluxData Repository [RHEL]
+  ansible.builtin.yum_repository:
+    name: influxdata
+    baseurl: "{{ telegraf_influxdata_base_url }}/stable/\\$basearch/main"
+    description: InfluxData Repository - Stable
+    gpgkey: "{{ telegraf_influxdata_base_url }}/influxdata-archive.key"
+    enabled: true
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+
+- name: install | Configure InfluxData Repository [Debian]
+  ansible.builtin.deb822_repository:
+    name: influxdata
+    types: deb
+    enabled: true
+    state: present
+    uris: "{{ telegraf_influxdata_base_url }}/debian"
+    suites: stable
+    components: main
+    signed_by: "{{ telegraf_influxdata_base_url }}/influxdata-archive.key"
+  when:
+    - ansible_os_family == "Debian"
+
+- name: install | Install telegraf package
+  ansible.builtin.package:
+    name: telegraf
+    state: present
+    update_cache: true
+
+- name: install | Set up telegraf service
+  tags:
+    - telegraf-systemd
+  block:
+    - name: install | Create telegraf service.d directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/telegraf.service.d
+        state: directory
+        mode: "0755"
+      when:
+        - telegraf_runas_user != "telegraf"
+
+    - name: install | Copy telegraf override configuration
+      ansible.builtin.template:
+        src: systemd/system/telegraf.service.d/override.conf.j2
+        dest: /etc/systemd/system/telegraf.service.d/override.conf
+        mode: "0755"
+      when:
+        - telegraf_runas_user != "telegraf"
+      notify:
+        - Restart Telegraf
+
+- name: install | Enable Telegraf service
+  ansible.builtin.service:
+    name: telegraf
+    enabled: true

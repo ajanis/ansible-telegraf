@@ -1,8 +1,0 @@
----
-- name: nvmesh-plugin | Copy nvmesh plugin
-  ansible.builtin.copy:
-    src: nvmesh_telegraf.py
-    dest: /etc/opt/NVMesh/nvmesh_telegraf.py
-    owner: root
-    group: root
-    mode: "0755"
